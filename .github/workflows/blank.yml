@@ -30,6 +30,7 @@ jobs:
             "https://github.com/leanprover-community/mathlib4.git" @ "v4.30.0-rc2"
 
           lean_lib FheToy where
+          lean_lib CenteredAttempt where
           EOF
 
           cat > FheToy.lean <<'EOF'
@@ -77,6 +78,74 @@ jobs:
             exact parity_noise_vanishes m r hm
           EOF
 
+          cat > CenteredAttempt.lean <<'EOF'
+          import Mathlib
+          import FheToy
+
+          def centeredMod (x p : Int) : Int :=
+            let y := x % p
+            if 2 * y < p then y else y - p
+
+          def toyDecryptCentered (c p : Int) : Int :=
+            centeredMod c p % 2
+
+          theorem centered_mod_add_multiple_nonnegative
+              (x p q : Int)
+              (hp : 0 < p)
+              (hx0 : 0 <= x)
+              (hxhalf : 2 * x < p) :
+              centeredMod (x + p * q) p = x := by
+            unfold centeredMod
+
+            have hxlt : x < p := by
+              nlinarith
+
+            have hmod : (x + p * q) % p = x := by
+              exact mod_add_multiple x p q hx0 hxlt
+
+            rw [hmod]
+
+            have hbranch : 2 * x < p := hxhalf
+            simp [hbranch]
+
+          theorem toy_decrypt_centered_nonnegative_correct
+              (m r p q : Int)
+              (hp : 0 < p)
+              (hm : m = 0 ∨ m = 1)
+              (hnoise_nonneg : 0 <= m + 2 * r)
+              (hnoise_half : 2 * (m + 2 * r) < p) :
+              toyDecryptCentered (toyCipher m r p q) p = m := by
+            unfold toyDecryptCentered toyCipher
+
+            have hcenter :
+                centeredMod (m + 2 * r + p * q) p = m + 2 * r := by
+              exact centered_mod_add_multiple_nonnegative
+                (m + 2 * r) p q hp hnoise_nonneg hnoise_half
+
+            rw [hcenter]
+
+            exact parity_noise_vanishes m r hm
+
+          /-
+          Frontier target.
+
+          This is the real next wall: allow negative noise.
+
+          Desired theorem shape:
+
+          theorem centered_mod_add_multiple_small
+              (x p q : Int)
+              (hp : 0 < p)
+              (hxlow : -(p / 2) < x)
+              (hxhigh : x < p / 2) :
+              centeredMod (x + p * q) p = x := by
+            ...
+
+          This needs case splitting on x < 0 vs 0 <= x, plus exact reasoning about
+          Int.emod, representatives, division by 2, and branch inequalities.
+          -/
+          EOF
+
       - name: Install elan
         run: |
           curl https://raw.githubusercontent.com/leanprover/elan/master/elan-init.sh -sSf | sh -s -- -y --default-toolchain none
@@ -95,28 +164,42 @@ jobs:
         run: |
           lake exe cache get
 
-      - name: Run direct Lean check
-        id: direct
+      - name: Check baseline non-centered proof
+        id: baseline
         continue-on-error: true
         run: |
           set +e
-          lake env lean FheToy.lean > lean-output.log 2>&1
+          lake env lean FheToy.lean > baseline-output.log 2>&1
           status=$?
           echo "status=$status" >> "$GITHUB_OUTPUT"
-          echo "Lean exit status: $status"
-          echo "----- BEGIN lean-output.log -----"
-          cat lean-output.log
-          echo "----- END lean-output.log -----"
+          echo "Baseline Lean exit status: $status"
+          echo "----- BEGIN baseline-output.log -----"
+          cat baseline-output.log
+          echo "----- END baseline-output.log -----"
           exit 0
 
-      - name: Count sorries in our proof only
+      - name: Check centered attempt
+        id: centered
+        continue-on-error: true
+        run: |
+          set +e
+          lake env lean CenteredAttempt.lean > centered-output.log 2>&1
+          status=$?
+          echo "status=$status" >> "$GITHUB_OUTPUT"
+          echo "Centered Lean exit status: $status"
+          echo "----- BEGIN centered-output.log -----"
+          cat centered-output.log
+          echo "----- END centered-output.log -----"
+          exit 0
+
+      - name: Count sorries in our proof files only
         id: sorries
         run: |
           set +e
-          grep --line-number '\bsorry\b' FheToy.lean > sorry-report.txt
+          grep --line-number '\bsorry\b' FheToy.lean CenteredAttempt.lean > sorry-report.txt
           count=$(wc -l < sorry-report.txt | tr -d ' ')
           echo "count=$count" >> "$GITHUB_OUTPUT"
-          echo "Sorry count in FheToy.lean: $count"
+          echo "Sorry count in our Lean files: $count"
           echo "----- BEGIN sorry-report.txt -----"
           cat sorry-report.txt || true
           echo "----- END sorry-report.txt -----"
@@ -126,12 +209,18 @@ jobs:
           {
             echo "## Lean FHE toy proof result"
             echo ""
-            echo "- Direct Lean exit code: ${{ steps.direct.outputs.status }}"
-            echo "- Sorry count in FheToy.lean: ${{ steps.sorries.outputs.count }}"
+            echo "- Baseline non-centered proof exit code: ${{ steps.baseline.outputs.status }}"
+            echo "- Centered attempt exit code: ${{ steps.centered.outputs.status }}"
+            echo "- Sorry count in our Lean files: ${{ steps.sorries.outputs.count }}"
             echo ""
-            echo "### Lean output"
+            echo "### Baseline output"
             echo '```text'
-            cat lean-output.log
+            cat baseline-output.log
+            echo '```'
+            echo ""
+            echo "### Centered attempt output"
+            echo '```text'
+            cat centered-output.log
             echo '```'
             echo ""
             echo "### Sorry report"
@@ -145,26 +234,28 @@ jobs:
         with:
           name: lean-fhe-toy-diagnostics
           path: |
-            lean-output.log
+            baseline-output.log
+            centered-output.log
             sorry-report.txt
             FheToy.lean
+            CenteredAttempt.lean
             lakefile.lean
             lean-toolchain
             lake-manifest.json
 
-      - name: Fail if Lean did not compile
-        if: steps.direct.outputs.status != '0'
+      - name: Fail if baseline proof did not compile
+        if: steps.baseline.outputs.status != '0'
         run: |
-          echo "Lean failed. Full lean-output.log:"
+          echo "Baseline proof failed. Full baseline-output.log:"
           echo "----------------------------------------"
-          cat lean-output.log
+          cat baseline-output.log
           echo "----------------------------------------"
           exit 1
 
-      - name: Fail if our proof still contains sorry
+      - name: Fail if our proof files contain sorry
         if: steps.sorries.outputs.count != '0'
         run: |
-          echo "FheToy.lean still contains sorry. Full sorry-report.txt:"
+          echo "Our Lean files still contain sorry. Full sorry-report.txt:"
           echo "----------------------------------------"
           cat sorry-report.txt || true
           echo "----------------------------------------"
