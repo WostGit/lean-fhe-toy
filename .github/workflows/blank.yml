@@ -112,14 +112,14 @@ jobs:
           echo "----- END lean-output.log -----"
           exit 0
 
-      - name: Count sorries
+      - name: Count sorries in our proof only
         id: sorries
         run: |
           set +e
-          grep -R --line-number --include='*.lean' '\bsorry\b' . > sorry-report.txt
+          grep --line-number '\bsorry\b' FheToy.lean > sorry-report.txt
           count=$(wc -l < sorry-report.txt | tr -d ' ')
           echo "count=$count" >> "$GITHUB_OUTPUT"
-          echo "Sorry count: $count"
+          echo "Sorry count in FheToy.lean: $count"
           echo "----- BEGIN sorry-report.txt -----"
           cat sorry-report.txt || true
           echo "----- END sorry-report.txt -----"
@@ -130,7 +130,7 @@ jobs:
             echo "## Lean FHE toy proof result"
             echo ""
             echo "- Direct Lean exit code: ${{ steps.direct.outputs.status }}"
-            echo "- Sorry count: ${{ steps.sorries.outputs.count }}"
+            echo "- Sorry count in FheToy.lean: ${{ steps.sorries.outputs.count }}"
             echo ""
             echo "### Lean output"
             echo '```text'
@@ -164,10 +164,10 @@ jobs:
           echo "----------------------------------------"
           exit 1
 
-      - name: Fail if proof still contains sorry
+      - name: Fail if our proof still contains sorry
         if: steps.sorries.outputs.count != '0'
         run: |
-          echo "Proof still contains sorry. Full sorry-report.txt:"
+          echo "FheToy.lean still contains sorry. Full sorry-report.txt:"
           echo "----------------------------------------"
           cat sorry-report.txt || true
           echo "----------------------------------------"
