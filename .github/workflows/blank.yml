@@ -55,11 +55,11 @@ jobs:
               (hx0 : 0 <= x)
               (hxp : x < p) :
               (x + p * q) % p = x := by
-            calc
-              (x + p * q) % p = x % p := by
-                rw [Int.add_mul_emod_self_left]
-              _ = x := by
-                exact Int.emod_eq_of_lt hx0 hxp
+            have h : (x + p * q) % p = x % p := by
+              simpa [mul_comm, mul_left_comm, mul_assoc] using
+                (Int.add_mul_emod_self_left x q p)
+            rw [h]
+            exact Int.emod_eq_of_lt hx0 hxp
 
           theorem toy_decrypt_noncentered_correct
               (m r p q : Int)
@@ -107,7 +107,9 @@ jobs:
           status=$?
           echo "status=$status" >> "$GITHUB_OUTPUT"
           echo "Lean exit status: $status"
+          echo "----- BEGIN lean-output.log -----"
           cat lean-output.log
+          echo "----- END lean-output.log -----"
           exit 0
 
       - name: Count sorries
@@ -118,7 +120,9 @@ jobs:
           count=$(wc -l < sorry-report.txt | tr -d ' ')
           echo "count=$count" >> "$GITHUB_OUTPUT"
           echo "Sorry count: $count"
+          echo "----- BEGIN sorry-report.txt -----"
           cat sorry-report.txt || true
+          echo "----- END sorry-report.txt -----"
 
       - name: Write summary
         run: |
@@ -130,7 +134,7 @@ jobs:
             echo ""
             echo "### Lean output"
             echo '```text'
-            head -n 200 lean-output.log
+            cat lean-output.log
             echo '```'
             echo ""
             echo "### Sorry report"
@@ -153,8 +157,18 @@ jobs:
 
       - name: Fail if Lean did not compile
         if: steps.direct.outputs.status != '0'
-        run: exit 1
+        run: |
+          echo "Lean failed. Full lean-output.log:"
+          echo "----------------------------------------"
+          cat lean-output.log
+          echo "----------------------------------------"
+          exit 1
 
       - name: Fail if proof still contains sorry
         if: steps.sorries.outputs.count != '0'
-        run: exit 1
+        run: |
+          echo "Proof still contains sorry. Full sorry-report.txt:"
+          echo "----------------------------------------"
+          cat sorry-report.txt || true
+          echo "----------------------------------------"
+          exit 1
