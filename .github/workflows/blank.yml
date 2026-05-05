@@ -1,0 +1,152 @@
+name: Lean FHE toy proof test
+
+on:
+  push:
+    branches: ["main"]
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  lean-fhe-toy:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Check out repo
+        uses: actions/checkout@v4
+
+      - name: Create self-contained Lean project
+        run: |
+          cat > lean-toolchain <<'EOF'
+          leanprover/lean4:stable
+          EOF
+
+          cat > lakefile.lean <<'EOF'
+          import Lake
+          open Lake DSL
+
+          package «fhe-toy» where
+
+          require mathlib from git
+            "https://github.com/leanprover-community/mathlib4.git"
+
+          lean_lib FheToy where
+          EOF
+
+          cat > FheToy.lean <<'EOF'
+          import Mathlib
+
+          def toyCipher (m r p q : Int) : Int :=
+            m + 2 * r + p * q
+
+          def toyDecryptNonCentered (c p : Int) : Int :=
+            (c % p) % 2
+
+          theorem parity_noise_vanishes
+              (m r : Int)
+              (hm : m = 0 ∨ m = 1) :
+              (m + 2 * r) % 2 = m := by
+            rcases hm with rfl | rfl
+            · simp
+            · omega
+
+          theorem mod_add_multiple
+              (x p q : Int)
+              (hp : 0 < p)
+              (hx0 : 0 <= x)
+              (hxp : x < p) :
+              (x + p * q) % p = x := by
+            calc
+              (x + p * q) % p = x % p := by
+                simpa [mul_comm, mul_left_comm, mul_assoc] using
+                  Int.add_mul_emod_self_left x q p
+              _ = x := by
+                exact Int.emod_eq_of_lt hx0 hxp
+
+          theorem toy_decrypt_noncentered_correct
+              (m r p q : Int)
+              (hp : 0 < p)
+              (hm : m = 0 ∨ m = 1)
+              (hnoise_nonneg : 0 <= m + 2 * r)
+              (hnoise_small : m + 2 * r < p) :
+              toyDecryptNonCentered (toyCipher m r p q) p = m := by
+            unfold toyDecryptNonCentered toyCipher
+
+            have hmod :
+                (m + 2 * r + p * q) % p = m + 2 * r := by
+              exact mod_add_multiple
+                (m + 2 * r) p q hp hnoise_nonneg hnoise_small
+
+            rw [hmod]
+
+            exact parity_noise_vanishes m r hm
+          EOF
+
+      - name: Install Lean and run proof
+        id: lean
+        continue-on-error: true
+        uses: leanprover/lean-action@v1
+        with:
+          build: true
+          test: false
+          lint: false
+          use-mathlib-cache: true
+
+      - name: Direct Lean check
+        id: direct
+        continue-on-error: true
+        run: |
+          set +e
+          lake env lean FheToy.lean > lean-output.log 2>&1
+          status=$?
+          echo "status=$status" >> "$GITHUB_OUTPUT"
+          echo "Lean exit status: $status"
+          cat lean-output.log
+          exit 0
+
+      - name: Count sorries
+        id: sorries
+        run: |
+          set +e
+          grep -R --line-number --include='*.lean' '\bsorry\b' . > sorry-report.txt
+          count=$(wc -l < sorry-report.txt | tr -d ' ')
+          echo "count=$count" >> "$GITHUB_OUTPUT"
+          echo "Sorry count: $count"
+          cat sorry-report.txt || true
+
+      - name: Write summary
+        run: |
+          {
+            echo "## Lean FHE toy proof result"
+            echo ""
+            echo "- Direct Lean exit code: ${{ steps.direct.outputs.status }}"
+            echo "- Sorry count: ${{ steps.sorries.outputs.count }}"
+            echo ""
+            echo "### Lean output"
+            echo '```text'
+            head -n 200 lean-output.log
+            echo '```'
+            echo ""
+            echo "### Sorry report"
+            echo '```text'
+            cat sorry-report.txt || true
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Upload diagnostics
+        uses: actions/upload-artifact@v4
+        with:
+          name: lean-fhe-toy-diagnostics
+          path: |
+            lean-output.log
+            sorry-report.txt
+            FheToy.lean
+            lakefile.lean
+            lean-toolchain
+
+      - name: Fail if Lean did not compile
+        if: steps.direct.outputs.status != '0'
+        run: exit 1
+
+      - name: Fail if proof still contains sorry
+        if: steps.sorries.outputs.count != '0'
+        run: exit 1
