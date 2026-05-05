@@ -85,8 +85,8 @@ jobs:
 
           theorem centered_mod_add_multiple_nonnegative
               (x p q : Int)
-              (hp : 0 < p)
-              (hx0 : 0 <= x)
+              (hx0 : 0 < p)
+              (hxn : 0 <= x)
               (hxhalf : 2 * x < p) :
               centeredMod (x + p * q) p = x := by
             unfold centeredMod
@@ -95,7 +95,7 @@ jobs:
               omega
 
             have hmod : (x + p * q) % p = x := by
-              exact mod_add_multiple x p q hx0 hxlt
+              exact mod_add_multiple x p q hxn hxlt
 
             rw [hmod]
 
@@ -160,7 +160,6 @@ jobs:
                 omega
 
               simp [hbranch]
-              ring
 
           theorem toy_decrypt_centered_correct
               (m r p q : Int)
