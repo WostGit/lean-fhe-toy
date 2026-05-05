@@ -55,13 +55,12 @@ jobs:
               (hxp : x < p) :
               (x + p * q) % p = x := by
             have h : (x + p * q) % p = x % p := by
-              simp [Int.add_mul_emod_self_left, mul_comm, mul_left_comm, mul_assoc]
+              simp [Int.add_mul_emod_self_left]
             rw [h]
             exact Int.emod_eq_of_lt hx0 hxp
 
           theorem toy_decrypt_noncentered_correct
               (m r p q : Int)
-              (hp : 0 < p)
               (hm : m = 0 ∨ m = 1)
               (hnoise_nonneg : 0 <= m + 2 * r)
               (hnoise_small : m + 2 * r < p) :
