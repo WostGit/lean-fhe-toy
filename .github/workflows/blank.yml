@@ -17,7 +17,7 @@ jobs:
       - name: Create self-contained Lean project
         run: |
           cat > lean-toolchain <<'EOF'
-          leanprover/lean4:stable
+          leanprover/lean4:v4.30.0-rc2
           EOF
 
           cat > lakefile.lean <<'EOF'
@@ -27,7 +27,7 @@ jobs:
           package «fhe-toy» where
 
           require mathlib from git
-            "https://github.com/leanprover-community/mathlib4.git"
+            "https://github.com/leanprover-community/mathlib4.git" @ "v4.30.0-rc2"
 
           lean_lib FheToy where
           EOF
@@ -57,8 +57,7 @@ jobs:
               (x + p * q) % p = x := by
             calc
               (x + p * q) % p = x % p := by
-                simpa [mul_comm, mul_left_comm, mul_assoc] using
-                  Int.add_mul_emod_self_left x q p
+                rw [Int.add_mul_emod_self_left]
               _ = x := by
                 exact Int.emod_eq_of_lt hx0 hxp
 
@@ -81,17 +80,25 @@ jobs:
             exact parity_noise_vanishes m r hm
           EOF
 
-      - name: Install Lean and run proof
-        id: lean
-        continue-on-error: true
-        uses: leanprover/lean-action@v1
-        with:
-          build: true
-          test: false
-          lint: false
-          use-mathlib-cache: true
+      - name: Install elan
+        run: |
+          curl https://raw.githubusercontent.com/leanprover/elan/master/elan-init.sh -sSf | sh -s -- -y --default-toolchain none
+          echo "$HOME/.elan/bin" >> "$GITHUB_PATH"
 
-      - name: Direct Lean check
+      - name: Show Lean version
+        run: |
+          lean --version
+          lake --version
+
+      - name: Generate Lake manifest
+        run: |
+          lake update
+
+      - name: Download Mathlib cache
+        run: |
+          lake exe cache get
+
+      - name: Run direct Lean check
         id: direct
         continue-on-error: true
         run: |
@@ -142,6 +149,7 @@ jobs:
             FheToy.lean
             lakefile.lean
             lean-toolchain
+            lake-manifest.json
 
       - name: Fail if Lean did not compile
         if: steps.direct.outputs.status != '0'
