@@ -51,13 +51,11 @@ jobs:
 
           theorem mod_add_multiple
               (x p q : Int)
-              (hp : 0 < p)
               (hx0 : 0 <= x)
               (hxp : x < p) :
               (x + p * q) % p = x := by
             have h : (x + p * q) % p = x % p := by
-              simpa [mul_comm, mul_left_comm, mul_assoc] using
-                (Int.add_mul_emod_self_left x q p)
+              simp [Int.add_mul_emod_self_left, mul_comm, mul_left_comm, mul_assoc]
             rw [h]
             exact Int.emod_eq_of_lt hx0 hxp
 
@@ -73,7 +71,7 @@ jobs:
             have hmod :
                 (m + 2 * r + p * q) % p = m + 2 * r := by
               exact mod_add_multiple
-                (m + 2 * r) p q hp hnoise_nonneg hnoise_small
+                (m + 2 * r) p q hnoise_nonneg hnoise_small
 
             rw [hmod]
 
